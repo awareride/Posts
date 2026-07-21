@@ -16,7 +16,7 @@ jobs:
       - name: Push to Central Repo
         uses: dmnemec/copy_file_to_another_repo_action@main
         env:
-          API_TOKEN_GITHUB: ${{ secrets.CENTRAL_HUB_TOKEN }}
+          API_TOKEN_GITHUB: ${{ secrets.DOCS_CENTRAL_HUB_TOKEN }}
         with:
           source_file: 'posts/'
           destination_repo: 'awareride/awareride.github.io'
