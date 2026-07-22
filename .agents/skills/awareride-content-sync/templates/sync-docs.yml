@@ -1,0 +1,90 @@
+# Sync product docs from an external project to the AwareRide content hub.
+#
+# Place at: .github/workflows/sync-docs.yml
+#
+# Required secret in the external repo:
+#   DOCS_CENTRAL_HUB_TOKEN  - a fine-grained PAT on
+#                             awareride/awareride.github.io with
+#                             "Contents: write" (push the sync branch) and
+#                             "Pull requests: write" (open the PR).
+#
+# Sync pushes to a dedicated branch (sync-docs-<repo>-<run>) and opens a
+# pull request against the hub's main, so a human reviews content before it
+# ships. No commit lands on main directly.
+#
+# Directory mapping:
+#   <external>/docs/<product>/   ->  awareride.github.io/src/content/docs/<product>/
+#
+# The external docs/ tree uses docs/<product>/<locale>/<slug>.md
+# (e.g. docs/mytool/en/index.md, docs/mytool/zh/index.md), mirroring the hub's
+# src/content/docs/<product>/<locale>/<slug>.md exactly.
+#
+# IMPORTANT: the product name (the docs/<product>/ directory) must be listed in
+# the hub's src/content.config.ts `products` array, otherwise the synced
+# content won't have a collection. See SKILL.md "Registering the product".
+#
+# The copy uses `cp -L docs/. dest/` ("contents of docs/ into dest/") so the
+# result is always src/content/docs/<product>/..., never docs/docs/...
+
+name: Sync Docs to AwareRide Hub
+
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**']
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout external repo
+        uses: actions/checkout@v4
+
+      - name: Validate content
+        run: node awareride-content-sync/scripts/validate.mjs
+
+      - name: Sync docs/ to central hub via PR
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.DOCS_CENTRAL_HUB_TOKEN }}
+          SOURCE_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          HUB=awareride/awareride.github.io
+          # Source repo is owner/name; sanitize the '/' for a branch name.
+          SRC=$(printf '%s' "${SOURCE_REPO}" | tr '/' '-')
+          BRANCH="sync-docs-${SRC}-${RUN_ID}-${RUN_ATTEMPT}"
+          CLONE_DIR=$(mktemp -d)
+
+          git config --global user.email 'syncbot@awareride.com'
+          git config --global user.name 'DocSyncBot'
+          git clone --single-branch --branch main \
+            "https://x-access-token:${API_TOKEN_GITHUB}@github.com/${HUB}.git" "$CLONE_DIR"
+
+          # Copy CONTENTS of docs/ into src/content/docs/ via rsync.
+          # rsync's `docs/` source means "the contents of docs", so this
+          # never creates src/content/docs/docs/, regardless of whether
+          # the destination dir already exists on the hub.
+          mkdir -p "$CLONE_DIR/src/content/docs"
+          rsync -a docs/ "$CLONE_DIR/src/content/docs/"
+
+          cd "$CLONE_DIR"
+          git checkout -b "$BRANCH"
+          git add .
+          if git diff --cached --quiet; then
+            echo "No changes to sync."
+          else
+            git commit -m "docs: sync from ${SOURCE_REPO}"
+            git push -u origin "$BRANCH"
+
+            # Open a PR against the hub's main for human review.
+            # `gh` is preinstalled on GitHub-hosted runners.
+            export GH_TOKEN="${API_TOKEN_GITHUB}"
+            PR_BODY="$(printf 'Automated sync of `docs/` from `%s`.\n\nTriggered by workflow run [#%s](https://github.com/%s/actions/runs/%s).' \
+              "${SOURCE_REPO}" "${RUN_ID}" "${SOURCE_REPO}" "${RUN_ID}")"
+            gh pr create --repo "${HUB}" --base main --head "${BRANCH}" \
+              --title "docs: sync from ${SOURCE_REPO}" \
+              --body "${PR_BODY}"
+          fi

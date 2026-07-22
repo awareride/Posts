@@ -28,6 +28,9 @@
 name: Sync Posts to AwareRide Hub
 
 on:
+  push:
+    branches: [main]
+    paths: ['posts/**']
   workflow_dispatch:
 
 jobs:
@@ -67,23 +70,6 @@ jobs:
           rsync -a posts/ "$CLONE_DIR/src/content/posts/"
 
           cd "$CLONE_DIR"
-
-          # Cleanup obsolete files listed in sync-delete.list (paths relative to src/content/posts/).
-          # Place this file in the repo root; lines starting with # and empty lines are ignored.
-          if [ -f "$GITHUB_WORKSPACE/sync-delete.list" ]; then
-            echo "Cleaning up obsolete files from sync-delete.list..."
-            while IFS= read -r line || [ -n "$line" ]; do
-              case "$line" in ''|\#*) continue ;; esac
-              TARGET="src/content/posts/$line"
-              if [ -e "$TARGET" ] || [ -L "$TARGET" ]; then
-                echo "  removing: $line"
-                rm -rf "$TARGET"
-              else
-                echo "  not found (already gone): $line"
-              fi
-            done < "$GITHUB_WORKSPACE/sync-delete.list"
-          fi
-
           git checkout -b "$BRANCH"
           git add .
           if git diff --cached --quiet; then
