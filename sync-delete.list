@@ -1,6 +1,2 @@
-# 强制删除列表：每行一条相对于 hub src/content/posts/ 的路径
-# 用于清理 rsync 不会删除的遗留文件（如重命名/迁移后旧文件）
-# 空行和 # 开头的注释会被忽略
-
-en/packscope/2025-07-20-why-packscope.md
-zh/packscope/2025-07-20-why-packscope.md
+posts/en/packscope/2025-07-20-why-packscope.md
+posts/zh/packscope/2025-07-20-why-packscope.md
