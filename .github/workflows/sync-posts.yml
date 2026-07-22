@@ -24,10 +24,20 @@
 # contents are merged (correct); if not, the source dir is nested inside dest
 # (posts/posts/). We use a plain `cp -L posts/. dest/` so the copy is always
 # "contents of posts/ into dest/", regardless of hub state.
+#
+# Deleting retired content: the rsync copy only adds/overwrites; it never
+# removes hub-only files (to protect content from other projects). To retire
+# a page, delete it from posts/ here AND list it in sync-delete.list at the
+# repo root (one path per line, e.g. `posts/en/old-post.md`). If that file is
+# present, the workflow runs scripts/apply-delete-list.mjs after the copy to
+# remove the listed paths from the hub. See SKILL.md "Deleting content".
 
 name: Sync Posts to AwareRide Hub
 
 on:
+  push:
+    branches: [main]
+    paths: ['posts/**']
   workflow_dispatch:
 
 jobs:
@@ -35,7 +45,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout external repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       - name: Validate content
         run: node .agents/skills/awareride-content-sync/scripts/validate.mjs
@@ -66,24 +81,14 @@ jobs:
           mkdir -p "$CLONE_DIR/src/content/posts"
           rsync -a posts/ "$CLONE_DIR/src/content/posts/"
 
+          # Apply optional deletions from $GITHUB_WORKSPACE/sync-delete.list.
+          # Only `posts/...` entries are processed here; `docs/...` entries are
+          # handled by sync-docs.yml. Missing file = no-op. Runs after rsync so
+          # deletions win over the copy.
+          node .agents/skills/awareride-content-sync/scripts/apply-delete-list.mjs \
+            "$CLONE_DIR/src/content/posts" posts
+
           cd "$CLONE_DIR"
-
-          # Cleanup obsolete files listed in sync-delete.list (paths relative to src/content/posts/).
-          # Place this file in the repo root; lines starting with # and empty lines are ignored.
-          if [ -f "$GITHUB_WORKSPACE/sync-delete.list" ]; then
-            echo "Cleaning up obsolete files from sync-delete.list..."
-            while IFS= read -r line || [ -n "$line" ]; do
-              case "$line" in ''|\#*) continue ;; esac
-              TARGET="src/content/posts/$line"
-              if [ -e "$TARGET" ] || [ -L "$TARGET" ]; then
-                echo "  removing: $line"
-                rm -rf "$TARGET"
-              else
-                echo "  not found (already gone): $line"
-              fi
-            done < "$GITHUB_WORKSPACE/sync-delete.list"
-          fi
-
           git checkout -b "$BRANCH"
           git add .
           if git diff --cached --quiet; then
