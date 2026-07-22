@@ -38,7 +38,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Validate content
-        run: node awareride-content-sync/scripts/validate.mjs
+        run: node .agents/skills/awareride-content-sync/scripts/validate.mjs
 
       - name: Sync posts/ to central hub via PR
         env:
